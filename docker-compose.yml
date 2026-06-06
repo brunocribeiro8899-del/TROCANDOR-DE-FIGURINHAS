@@ -1,0 +1,93 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: trocandor_app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
+    environment:
+      - PHP_OPCACHE_VALIDATE_TIMESTAMPS=1
+    networks:
+      - trocandor
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    container_name: trocandor_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./backend:/var/www
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - trocandor
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    container_name: trocandor_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-trocandor}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_USER: ${DB_USERNAME:-trocandor}
+    volumes:
+      - trocandor_mysql:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - trocandor
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-secret}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: trocandor_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - trocandor_redis:/data
+    networks:
+      - trocandor
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  node:
+    image: node:20-alpine
+    container_name: trocandor_node
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "5173:5173"
+    profiles:
+      - dev
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    networks:
+      - trocandor
+
+networks:
+  trocandor:
+    driver: bridge
+
+volumes:
+  trocandor_mysql:
+  trocandor_redis:
